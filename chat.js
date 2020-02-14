@@ -28,13 +28,14 @@ const PEER_DISCOVERY_INTERVAL = 2000
 
 const KNOWN_PEERS = [
     // TODO : replace this with well known peers on the mesh network!
-    "/ip4/0.0.0.0/tcp/4001/ipfs/QmQ2wa3xxT9oPJqYNP3Ca6KLwGKtNBZyhNCQTMBMZZgp7N",
+    "/ip4/0.0.0.0/tcp/4001/ipfs/QmcB8sBNuwsj9XYNW2Q5xSZo4VLQ7d5i2PX6xgCu6AmYZP",
 ]
 
 const PROMPT = "> "
 
 const DEFAULT_NAME = "nobody"
-const DEFAULT_PASSWORD = "mesh4ever"
+// NOTE that this has to be 24 chars
+const DEFAULT_PASSWORD = "cancel-cretinous-cable-cartels"
 const DEFAULT_SWARM_KEY_PATH = "./nycmesh_swarm.key"
 const DEFAULT_SWARM_PORT = "4123"
 const DEFAULT_TOPIC = "main"
@@ -129,12 +130,13 @@ async function main() {
     console.log("INF0: Bootstrapping...")
 
     // TODO : use a better algo here (e.g. happy eyeballs) or at least shuffle `KNOWN_PEERS`
-    for (var multihash of KNOWN_PEERS) {
+    for (var addr of KNOWN_PEERS) {
         try {
-            await node.swarm.connect(multihash)
+            await node.swarm.connect(addr)
             break
         } catch (e) {
-            console.log(`WARN: Failed to connect to known peer: ${multihash}`)
+            // TODO : many times these connect calls throw an exception, even when we actually end up connecting
+            console.log(`WARN: Failed to connect to known peer: ${addr}`)
         }
     }
 
