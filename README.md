@@ -1,6 +1,6 @@
-# NYCMesh IPFS Messaging Service
+# NYCMesh IPFS Chat Service
 
-A messaging service for the NYCMesh network that is built on top of IPFS.
+A very basic messaging service for the NYCMesh network that is built on top of IPFS.
 
 Why IPFS? IPFS is decentralized/distributed protocol that enables the service to run without a central point of failure. This messaging service should be able to work even if our network gets partitioned (e.g. a supernode serving an entire neighborhood goes down).
 
@@ -17,7 +17,7 @@ Install `node` and then `npm install`
 You can use the messaging client on the command line by invoking `./chat.js`.
 
 Required Command Line Arguments:
-- `--repo-path` a path to the IPFS repo to use (if empty/non-existant a new IPFS repo will be initialized)
+- `--repo-path` a path to the IPFS repo to use (if the repo is empty a new IPFS repo will be initialized)
 - `--name` your display name
 
 There is also a provided example config for running a bootstrap node.

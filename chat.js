@@ -24,7 +24,6 @@ const Gossipsub = require('libp2p-gossipsub')
 
 /* CONSTS */
 
-
 const PEER_DISCOVERY_INTERVAL = 2000
 
 const KNOWN_PEERS = [
@@ -37,7 +36,7 @@ const PROMPT = "> "
 const DEFAULT_NAME = "nobody"
 const DEFAULT_PASSWORD = "mesh4ever"
 const DEFAULT_SWARM_KEY_PATH = "./nycmesh_swarm.key"
-const DEFAULT_SWARM_PORT = "4001"
+const DEFAULT_SWARM_PORT = "4123"
 const DEFAULT_TOPIC = "main"
 
 
