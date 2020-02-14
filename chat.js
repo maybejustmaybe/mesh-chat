@@ -29,22 +29,21 @@ const PEER_DISCOVERY_INTERVAL = 2000
 
 const KNOWN_PEERS = [
     // TODO : replace this with well known peers on the mesh network!
-    "/ip4/0.0.0.0/tcp/4001/ipfs/QmVKZppLgR4ZtxbQvhDCSXkCJVkyARpLdACD1JKzC1xfHG",
+    "/ip4/0.0.0.0/tcp/4001/ipfs/QmQ2wa3xxT9oPJqYNP3Ca6KLwGKtNBZyhNCQTMBMZZgp7N",
 ]
 
 const PROMPT = "> "
 
 const DEFAULT_NAME = "nobody"
-const DEFAULT_PASSWORD = "asdfads3241234dfadsfa1234124"
-const DEFAULT_SWARM_KEY_PATH = "./swarm.key"
+const DEFAULT_PASSWORD = "mesh4ever"
+const DEFAULT_SWARM_KEY_PATH = "./nycmesh_swarm.key"
 const DEFAULT_SWARM_PORT = "4001"
-const DEFAULT_TOPIC = "adspioasdfoiasd;lfkqwenvoicv8uqewrfuq"
+const DEFAULT_TOPIC = "main"
 
 
 /* HELPERS */
 
-
-// Copied and adapted from: https://github.com/libp2p/js-libp2p/blob/b2943014562c56f4a88c36471fc54e4b801899b1/examples/pnet-ipfs/libp2p-bundle.js
+// Copied and adapted from: github.com/libp2p/js-libp2p/examples/pnet-ipfs/libp2p-bundle.js
 const privateLibp2pBundle = (swarmKeyPath) => {
     /**
      * This is the bundle we will use to create our fully customized libp2p bundle.
@@ -81,7 +80,7 @@ const privateLibp2pBundle = (swarmKeyPath) => {
                     }
                 },
                 pubsub: {
-                    // NOTE that this disables self-delivery i.e. not delivering a pubsub message to the publisher of said message
+                    // NOTE that this disables self-delivery
                     emitSelf: false,
                 }
             }
@@ -91,11 +90,14 @@ const privateLibp2pBundle = (swarmKeyPath) => {
     return libp2pBundle
 }
 
-const createConfig = (repo_path, swarm_port = DEFAULT_SWARM_PORT, password = DEFAULT_PASSWORD, swarm_key_path = DEFAULT_SWARM_KEY_PATH) => {
+const createConfig = (
+    repo_path, 
+    swarm_port = DEFAULT_SWARM_PORT, 
+    password = DEFAULT_PASSWORD, 
+    swarm_key_path = DEFAULT_SWARM_KEY_PATH
+) => {
     return {
         repo: repo_path,
-        // TODO : do we need to init?
-        init: true,
         pass: password,
         libp2p: privateLibp2pBundle(swarm_key_path),
         config: {
@@ -151,6 +153,7 @@ async function main() {
         readline.prompt()
     }
 
+    // Print periodic updates if our peer count changes
     var peerCount = null
     setInterval(async () => {
         const peers = await node.swarm.peers()
@@ -160,7 +163,7 @@ async function main() {
         }
     }, 5*1000)
 
-    console.log(`Subscribing to ${topic}...`)
+    console.log(`Subscribing to '${topic}'...`)
     await node.pubsub.subscribe(topic, (raw) => {
         const data = JSON.parse(raw.data.toString())
         writeToConsole(`${data.name}> ${data.msg}`)
