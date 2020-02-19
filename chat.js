@@ -10,6 +10,7 @@ const readline = require("readline").createInterface({
     input: process.stdin,
     output: process.stdout,
 });
+const EventEmitter = require('events').EventEmitter
 
 const IPFS = require("ipfs")
 
@@ -68,6 +69,7 @@ const privateLibp2pBundle = (swarmKeyPath) => {
                 // care about node identity, and only the presence of private keys
                 connEncryption: [SECIO],
                 // TODO : verify that this works outside of LAN networks
+                // TODO : consider using a DHT instead of mdns
                 peerDiscovery: [MulticastDNS],
                 connProtector: new Protector(fs.readFileSync(swarmKeyPath)),
                 pubsub: Gossipsub,
@@ -91,9 +93,9 @@ const privateLibp2pBundle = (swarmKeyPath) => {
 }
 
 const createConfig = (
-    repo_path, 
-    swarm_port = DEFAULT_SWARM_PORT, 
-    password = DEFAULT_PASSWORD, 
+    repo_path,
+    swarm_port = DEFAULT_SWARM_PORT,
+    password = DEFAULT_PASSWORD,
     swarm_key_path = DEFAULT_SWARM_KEY_PATH
 ) => {
     return {
@@ -112,6 +114,66 @@ const createConfig = (
 
 /* CORE */
 
+class Client extends EventEmitter {
+    constructor(node, name) {
+        super()
+
+        this._node = node
+        this._name = name
+
+        this._topic = null
+    }
+
+    async bootstrap () {
+        // TODO : use a better algo here (e.g. happy eyeballs) or at least shuffle `KNOWN_PEERS`
+        for (var addr of KNOWN_PEERS) {
+            try {
+                await this._node.swarm.connect(addr)
+                break
+            } catch (e) {
+                // TODO : many times these connect calls throw an exception, even when we actually end up connecting
+                console.log(`WARN: Failed to connect to known peer: ${addr}`)
+            }
+        }
+
+        return (await this._node.swarm.peers()).length != 0
+    }
+
+    async subscribe (topic) {
+        if (this._topic == null) {
+            this._topic = topic
+        } else {
+            throw new Error("This client is already subscribed to a topic")
+        }
+
+        await this._node.pubsub.subscribe(
+            topic, (raw) => {
+                const data = JSON.parse(raw.data.toString())
+                if (data.type == "joined") {
+                    this.emit("user:joined", data.name)
+                } else if (data.type == "message") {
+                    this.emit("user:message", data.name, data.payload)
+                } else {
+                    this.emit("error", `encountered invalid message: ${data.type}`)
+                }
+            },
+        )
+    }
+
+    async send (msg) {
+        if (this._topic == null) {
+            throw new Error("This client has not subscribed to a topic yet")
+        }
+
+        await this._node.pubsub.publish(
+            this._topic,
+            Buffer.from(JSON.stringify({name: this._name, type: "message", payload: msg}))
+        )
+    }
+}
+
+
+/* MAIN */
 
 async function main() {
     if (argv["repo-path"] === undefined) {
@@ -126,32 +188,15 @@ async function main() {
 
     const config = createConfig(argv["repo-path"], argv["swarm-port"], argv["password"], argv["swarm-key-path"])
     const node = await IPFS.create(config)
+    const client = new Client(node, name)
 
     console.log("INF0: Bootstrapping...")
 
-    // TODO : use a better algo here (e.g. happy eyeballs) or at least shuffle `KNOWN_PEERS`
-    for (var addr of KNOWN_PEERS) {
-        try {
-            await node.swarm.connect(addr)
-            break
-        } catch (e) {
-            // TODO : many times these connect calls throw an exception, even when we actually end up connecting
-            console.log(`WARN: Failed to connect to known peer: ${addr}`)
-        }
-    }
-
-    if ((await node.swarm.peers()).length == 0) {
+    if (await client.bootstrap()) {
+        console.log("INFO: Completed boostrapping")
+    } else {
         console.log("FATAL: Failed to connect to any peers, exiting.")
         process.exit()
-    } else {
-        console.log("INFO: Completed boostrapping")
-    }
-
-    readline.setPrompt("> ")
-
-    const writeToConsole = (line) => {
-        console.log("\r".repeat(PROMPT.length) + line)
-        readline.prompt()
     }
 
     // Print periodic updates if our peer count changes
@@ -164,14 +209,41 @@ async function main() {
         }
     }, 5*1000)
 
-    console.log(`Subscribing to '${topic}'...`)
-    await node.pubsub.subscribe(topic, (raw) => {
-        const data = JSON.parse(raw.data.toString())
-        writeToConsole(`${data.name}> ${data.msg}`)
-    })
+    readline.setPrompt("> ")
 
-    readline.on("line", (line) => {
-        node.pubsub.publish(topic, Buffer.from(JSON.stringify({name: name, msg: line})))
+    const writeToConsole = (line) => {
+        console.log("\r".repeat(PROMPT.length) + line)
+        readline.prompt()
+    }
+
+    client.on("user:joined", (name) => writetoconsole(`${name} joined!`))
+    client.on("user:message", (name, payload) => writeToConsole(`${name}> ${payload}`))
+    client.on("error", (err) => `WARNING: encountered an error: ${err}`)
+
+    writeToConsole(`INFO: joining '${topic}' topic...`)
+
+    await client.subscribe(topic)
+
+    // TODO : we might want to integrate this later
+    // {},
+    // async () => {
+    //     writeToConsole(`${name} joined!`)
+    //     // TODO : this message may be sent before we are connected to all of our peers on the topic
+    //     // For now, we sleep for a few seconds in the hope that we will have connected
+    //     // to all of our peers
+    //     setTimeout(
+    //         () => {
+    //             node.pubsub.publish(
+    //                 topic,
+    //                 Buffer.from(JSON.stringify({name: name, type: "joined"}))
+    //             )
+    //         },
+    //         3 * 1000
+    //     )
+    // }
+
+    readline.on("line", async (line) => {
+        await client.send(line)
         readline.prompt()
     })
     readline.prompt()
