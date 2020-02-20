@@ -1,3 +1,5 @@
+## Overview
+
 A decentralized messaging service built on top of IPFS
 
 Why IPFS? IPFS is decentralized/distributed protocol that enables the service to run without a central point of failure. This messaging service should be able to work even if our network gets partitioned (e.g. a supernode serving an entire neighborhood goes down).
