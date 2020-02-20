@@ -26,6 +26,10 @@ const Gossipsub = require('libp2p-gossipsub')
 /* CONSTS */
 
 const PEER_DISCOVERY_INTERVAL = 2000
+const MEMBER_HEARTBEAT_INTERVAL = 3000
+// The amount of without a heartbeat before a member is pronounced dead
+const MEMBER_CLEANUP_INTERVAL = MEMBER_HEARTBEAT_INTERVAL * 3
+const MEMBER_CLEANUP_POLL_INTERVAL = 200
 
 const KNOWN_PEERS = [
     // TODO : replace this with well known peers on the mesh network!
@@ -115,18 +119,23 @@ const createConfig = (
 /* CORE */
 
 class Client extends EventEmitter {
-    constructor(node, name) {
+    constructor (node, name) {
         super()
 
         this._node = node
         this._name = name
 
         this._topic = null
+        // TODO : use a something better than timestamps
+        this._joined_at = null
+        this._topic_members = {}
+
+        this._interval_ids = []
     }
 
     async bootstrap () {
         // TODO : use a better algo here (e.g. happy eyeballs) or at least shuffle `KNOWN_PEERS`
-        for (var addr of KNOWN_PEERS) {
+        for (const addr of KNOWN_PEERS) {
             try {
                 await this._node.swarm.connect(addr)
                 break
@@ -147,16 +156,63 @@ class Client extends EventEmitter {
         }
 
         await this._node.pubsub.subscribe(
-            topic, (raw) => {
+            this._topic, (raw) => {
                 const data = JSON.parse(raw.data.toString())
-                if (data.type == "joined") {
-                    this.emit("user:joined", data.name)
+
+                if (data.type == "heartbeat") {
+                    // NOTE that we only emit a joined event if we think that the peer
+                    // joined after us
+                    if (
+                        !(data.name in this._topic_members) &&
+                        this._joined_at < new Date(data.joined_at)
+                    ) {
+                        this.emit("member:joined", data.name)
+                    }
+
+                    this._topic_members[data.name] = new Date()
                 } else if (data.type == "message") {
-                    this.emit("user:message", data.name, data.payload)
+                    this.emit("member:message", data.name, data.payload)
                 } else {
-                    this.emit("error", `encountered invalid message: ${data.type}`)
+                    this.emit("error", `Encountered invalid message: ${data.type}`)
                 }
             },
+            {},
+            async () => {
+                this._joined_at = new Date()
+
+                // Set up periodic heartbeats from this peer
+                this._interval_ids.push(
+                    setInterval(
+                        () => {
+                            this._node.pubsub.publish(
+                                this._topic,
+                                Buffer.from(
+                                    JSON.stringify(
+                                        {name: this._name, type: "heartbeat", joined_at: this._joined_at}
+                                    )
+                                )
+                            )
+                        },
+                        MEMBER_HEARTBEAT_INTERVAL
+                    )
+                )
+
+                // Clean up peers that have left
+                this._interval_ids.push(
+                    setInterval(
+                        () => {
+                            const cur_time = new Date()
+                            for (const [name, last_hb_time] of Object.entries(this._topic_members)) {
+                                if (cur_time - last_hb_time >= MEMBER_CLEANUP_INTERVAL) {
+                                    this.emit("member:left", name)
+                                    delete this._topic_members[name]
+                                }
+                            }
+                        },
+                        MEMBER_CLEANUP_POLL_INTERVAL,
+                    )
+                )
+            }
         )
     }
 
@@ -169,6 +225,12 @@ class Client extends EventEmitter {
             this._topic,
             Buffer.from(JSON.stringify({name: this._name, type: "message", payload: msg}))
         )
+    }
+
+    disconnect () {
+        for (let id of this._interval_ids) {
+            clearInterval(id)
+        }
     }
 }
 
@@ -200,14 +262,14 @@ async function main() {
     }
 
     // Print periodic updates if our peer count changes
-    var peerCount = null
+    let peerCount = null
     setInterval(async () => {
         const peers = await node.swarm.peers()
         if (peers.length != peerCount) {
             writeToConsole(`INFO: Connected to ${peers.length} peers`)
             peerCount = peers.length
         }
-    }, 5*1000)
+    }, 60*1000)
 
     readline.setPrompt("> ")
 
@@ -216,31 +278,15 @@ async function main() {
         readline.prompt()
     }
 
-    client.on("user:joined", (name) => writetoconsole(`${name} joined!`))
-    client.on("user:message", (name, payload) => writeToConsole(`${name}> ${payload}`))
+    client.on("member:joined", (name) => writeToConsole(`${name} joined!`))
+    client.on("member:left", (name) => writeToConsole(`${name} left!`))
+    client.on("member:message", (name, payload) => writeToConsole(`${name}> ${payload}`))
     client.on("error", (err) => `WARNING: encountered an error: ${err}`)
 
     writeToConsole(`INFO: joining '${topic}' topic...`)
 
     await client.subscribe(topic)
-
-    // TODO : we might want to integrate this later
-    // {},
-    // async () => {
-    //     writeToConsole(`${name} joined!`)
-    //     // TODO : this message may be sent before we are connected to all of our peers on the topic
-    //     // For now, we sleep for a few seconds in the hope that we will have connected
-    //     // to all of our peers
-    //     setTimeout(
-    //         () => {
-    //             node.pubsub.publish(
-    //                 topic,
-    //                 Buffer.from(JSON.stringify({name: name, type: "joined"}))
-    //             )
-    //         },
-    //         3 * 1000
-    //     )
-    // }
+    writeToConsole(`${name} joined!`)
 
     readline.on("line", async (line) => {
         await client.send(line)
