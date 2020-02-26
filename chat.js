@@ -2,15 +2,18 @@
 
 'use strict'
 
-const argv = require("minimist")(process.argv.slice(1))
+const argv = require('minimist')(process.argv.slice(1))
 
-const Buffer = require("buffer").Buffer
+const Buffer = require('buffer').Buffer
+const EventEmitter = require('events').EventEmitter
 const fs = require('fs')
-const readline = require("readline").createInterface({
+const readline = require('readline').createInterface({
     input: process.stdin,
     output: process.stdout,
 });
-const EventEmitter = require('events').EventEmitter
+const os = require("os")
+const path = require('path')
+
 
 const IPFS = require("ipfs")
 
@@ -39,11 +42,13 @@ const KNOWN_PEERS = [
 const PROMPT = "> "
 
 const DEFAULT_NAME = "nobody"
-// NOTE that this has to be 24 chars
-const DEFAULT_PASSWORD = "cancel-cretinous-cable-cartels"
-const DEFAULT_SWARM_KEY_PATH = "./nycmesh_swarm.key"
-const DEFAULT_SWARM_PORT = "4123"
 const DEFAULT_TOPIC = "main"
+// NOTE that this has to be >20 chars
+const DEFAULT_PASSWORD = "cancel-cretinous-cable-cartels"
+
+const DEFAULT_REPO_PATH = path.resolve(os.homedir(), ".mesh_chat/ipfs_repo")
+const DEFAULT_SWARM_KEY_PATH = path.resolve("nycmesh_swarm.key")
+const DEFAULT_SWARM_PORT = "4123"
 
 
 /* HELPERS */
@@ -238,17 +243,75 @@ class Client extends EventEmitter {
 /* MAIN */
 
 async function main() {
-    if (argv["repo-path"] === undefined) {
-        console.log("FATAL: must provide --repo-path")
-        process.exit()
-    } else {
-        console.log(`INFO: using IPFS repo ${argv["repo-path"]}`)
+    if (argv["help"] != undefined) {
+        console.log(
+`A chat client for the mesh!
+
+usage: chat --name <username> [--topic <default: ${DEFAULT_TOPIC}>] [--password <password>]
+                              [--repo-path <default: ${DEFAULT_REPO_PATH}>]
+                              [--swarm-port <default: ${DEFAULT_SWARM_PORT}>] 
+                              [--swarm-key-path <default: ${DEFAULT_SWARM_KEY_PATH}>]
+
+options:
+    --name
+        Your display name
+
+    --topic (optional)
+        The chat topic or channel that will be joined
+
+    --password (optional)
+        The password to the specified topic
+
+    --repo-path (optional)
+        The path to the IPFS repo that will be used by the client
+
+    --swarm-port (optional)
+        The port used by the IPFS swarm
+
+    --swarm-key-path (optional)
+        The key for the IPFS swarm we are joining
+        
+        NOTE that for now we assume that the IPFS swarm is private`
+        )
+        process.exit(0)
     }
 
-    const name = argv["name"] === undefined ? DEFAULT_NAME : argv["name"]
-    const topic = argv["topic"] === undefined ? DEFAULT_TOPIC : argv["topic"]
+    let name, topic, password, repo_path, swarm_port, swarm_key_path
 
-    const config = createConfig(argv["repo-path"], argv["swarm-port"], argv["password"], argv["swarm-key-path"])
+    if (argv["name"] == undefined) {
+        console.log("ERROR: You mush specify a username on the command line (e.g. '--name foobar')")
+        process.exit(1)
+    }
+
+    name = argv["name"]
+
+    // NOTE that we expect users to always pass both if they aren't using the default room
+    if (argv["topic"] == undefined ^ argv["password"] == undefined) {
+        console.log("ERROR: '--topic' and '--password' must both be or not be specified")
+        process.exit(1)
+    }
+
+    // TOOD : stop passing the password on the command line
+    if (argv["topic"] != undefined) {
+        topic = argv["topic"]
+        password = argv["password"]
+    } else {
+        topic = DEFAULT_TOPIC
+        password = DEFAULT_PASSWORD
+    }
+
+    if (argv["repo-path"] == undefined) {
+        repo_path = DEFAULT_REPO_PATH
+    } else {
+        repo_path = argv["repo-path"]
+    }
+
+    console.log(`INFO: using IPFS repo ${repo_path}`)
+
+    swarm_port = argv["swarm-port"] == undefined ? DEFAULT_SWARM_PORT : argv["swarm-port"]
+    swarm_key_path = argv["swarm-key-path"] == undefined ? DEFAULT_SWARM_KEY_PATH : argv["swarm-key-path"]
+
+    const config = createConfig(repo_path, swarm_port, password, swarm_key_path)
     const node = await IPFS.create(config)
     const client = new Client(node, name)
 
