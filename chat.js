@@ -2,8 +2,6 @@
 
 'use strict'
 
-const argv = require('minimist')(process.argv.slice(1))
-
 const Buffer = require('buffer').Buffer
 const EventEmitter = require('events').EventEmitter
 const fs = require('fs')
@@ -14,21 +12,13 @@ const readline = require('readline').createInterface({
 const os = require("os")
 const path = require('path')
 
-
 const IPFS = require("ipfs")
-
-const Libp2p = require('libp2p')
-const MPLEX = require('libp2p-mplex')
 const Protector = require('libp2p-pnet')
-const SECIO = require('libp2p-secio')
-const TCP = require('libp2p-tcp')
-const MulticastDNS = require('libp2p-mdns')
-const Gossipsub = require('libp2p-gossipsub')
+const argv = require('minimist')(process.argv.slice(1))
 
 
 /* CONSTS */
 
-const PEER_DISCOVERY_INTERVAL = 2000
 const MEMBER_HEARTBEAT_INTERVAL = 3000
 // The amount of without a heartbeat before a member is pronounced dead
 const MEMBER_CLEANUP_INTERVAL = MEMBER_HEARTBEAT_INTERVAL * 3
@@ -41,7 +31,6 @@ const KNOWN_PEERS = [
 
 const PROMPT = "> "
 
-const DEFAULT_NAME = "nobody"
 const DEFAULT_TOPIC = "main"
 // NOTE that this has to be >20 chars
 const DEFAULT_PASSWORD = "cancel-cretinous-cable-cartels"
@@ -53,54 +42,6 @@ const DEFAULT_SWARM_PORT = "4123"
 
 /* HELPERS */
 
-// Copied and adapted from: github.com/libp2p/js-libp2p/examples/pnet-ipfs/libp2p-bundle.js
-const privateLibp2pBundle = (swarmKeyPath) => {
-    /**
-     * This is the bundle we will use to create our fully customized libp2p bundle.
-     *
-     * @param {libp2pBundle~options} opts The options to use when generating the libp2p node
-     * @returns {Libp2p} Our new libp2p node
-     */
-    const libp2pBundle = (opts) => {
-        // Set convenience variables to clearly showcase some of the useful things that are available
-        const peerInfo = opts.peerInfo
-        const peerBook = opts.peerBook
-
-        // TODO : do we need to specify further pubsub configuration?
-        // TODO : better understand the specified defaults here
-        return new Libp2p({
-            peerInfo,
-            peerBook,
-            modules: {
-                transport: [TCP], // We're only using the TCP transport for this example
-                streamMuxer: [MPLEX], // We're only using mplex muxing
-                // Let's make sure to use identifying crypto in our pnet since the protector doesn't
-                // care about node identity, and only the presence of private keys
-                connEncryption: [SECIO],
-                // TODO : verify that this works outside of LAN networks
-                // TODO : consider using a DHT instead of mdns
-                peerDiscovery: [MulticastDNS],
-                connProtector: new Protector(fs.readFileSync(swarmKeyPath)),
-                pubsub: Gossipsub,
-            },
-            config: {
-                peerDiscovery: {
-                    mdns: {
-                        interval: PEER_DISCOVERY_INTERVAL,
-                        enabled: true
-                    }
-                },
-                pubsub: {
-                    // NOTE that this disables self-delivery
-                    emitSelf: false,
-                }
-            }
-        })
-    }
-
-    return libp2pBundle
-}
-
 const createConfig = (
     repo_path,
     swarm_port = DEFAULT_SWARM_PORT,
@@ -110,9 +51,19 @@ const createConfig = (
     return {
         repo: repo_path,
         pass: password,
-        libp2p: privateLibp2pBundle(swarm_key_path),
+        libp2p: {
+            modules: {
+                connProtector: new Protector(fs.readFileSync(swarm_key_path)),
+            },
+            config: {
+                pubsub: {
+                    // NOTE that this disables self-delivery
+                    emitSelf: false,
+                },
+            }
+        },
         config: {
-            Bootstrap: [],
+            Bootstrap: KNOWN_PEERS,
             Addresses: {
                 Swarm: ["/ip4/127.0.0.1/tcp/" + swarm_port]
             },
