@@ -68,6 +68,12 @@ const createConfig = (
                 Swarm: ["/ip4/127.0.0.1/tcp/" + swarm_port]
             },
         },
+        relay: {
+            enabled: true, // enable relay dialer/listener (STOP)
+            hop: {
+              enabled: true // make this node a relay (HOP)
+            },
+        },
     }
 }
 
