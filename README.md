@@ -16,11 +16,9 @@ Install `node` and then `npm install`
 
 You can use the messaging client on the command line by invoking `./chat.js`.
 
-Required Command Line Arguments:
-- `--repo-path` a path to the IPFS repo to use (if the repo is empty a new IPFS repo will be initialized)
-- `--name` your display name
+Example: `./chat.js --name me`
 
-There is also a provided example config for running a bootstrap node.
+The messaging client is set up to connect to NYCMesh bootstrap nodes, and join the "main" topic/channel
 
 Please post questions to the #mesh-services NYCMesh slack channel: https://app.slack.com/client/T02MB96L1/C06H99CGY
 
