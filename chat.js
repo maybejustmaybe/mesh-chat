@@ -13,7 +13,7 @@ const os = require("os")
 const path = require('path')
 
 const IPFS = require("ipfs")
-const Protector = require('libp2p-pnet')
+const Protector = require('libp2p/src/pnet')
 const argv = require('minimist')(process.argv.slice(1))
 
 
@@ -44,7 +44,7 @@ const DEFAULT_SWARM_PORT = "4123"
 
 const createConfig = (
     repo_path,
-    swarm_port = DEFAULT_SWARM_PORT,
+    port = DEFAULT_SWARM_PORT,
     password = DEFAULT_PASSWORD,
     swarm_key_path = DEFAULT_SWARM_KEY_PATH
 ) => {
@@ -65,7 +65,7 @@ const createConfig = (
         config: {
             Bootstrap: KNOWN_PEERS,
             Addresses: {
-                Swarm: ["/ip4/127.0.0.1/tcp/" + swarm_port]
+                Swarm: ["/ip4/127.0.0.1/tcp/" + port]
             },
         },
         relay: {
@@ -222,7 +222,7 @@ options:
     --repo-path (optional)
         The path to the IPFS repo that will be used by the client
 
-    --swarm-port (optional)
+    --port (optional)
         The port used by the IPFS swarm
 
     --swarm-key-path (optional)
@@ -233,7 +233,20 @@ options:
         process.exit(0)
     }
 
-    let name, topic, password, repo_path, swarm_port, swarm_key_path
+    // XXX : add in a `_` "flag" since the parsed args always have it as a key
+    // TODO : use a better interface to minimist
+    let name, topic, password, repo_path, port, swarm_key_path
+    const VALID_FLAGS = new Set(["name", "topic", "password", "repo-path", "port", "swarm-key-path", "_"])
+
+    let validation_succeeded = true
+    for (const invalid_arg of Object.keys(argv).filter(arg => !VALID_FLAGS.has(arg))) {
+        console.log(`ERROR: '--${invalid_arg}' is not a valid flag`)
+        validation_succeeded = false
+    }
+
+    if (!validation_succeeded) {
+        process.exit(1)
+    }
 
     if (argv["name"] == undefined) {
         console.log("ERROR: You mush specify a username on the command line (e.g. '--name foobar')")
@@ -265,10 +278,10 @@ options:
 
     console.log(`INFO: using IPFS repo ${repo_path}`)
 
-    swarm_port = argv["swarm-port"] == undefined ? DEFAULT_SWARM_PORT : argv["swarm-port"]
+    port = argv["port"] == undefined ? DEFAULT_SWARM_PORT : argv["port"]
     swarm_key_path = argv["swarm-key-path"] == undefined ? DEFAULT_SWARM_KEY_PATH : argv["swarm-key-path"]
 
-    const config = createConfig(repo_path, swarm_port, password, swarm_key_path)
+    const config = createConfig(repo_path, port, password, swarm_key_path)
     const node = await IPFS.create(config)
     const client = new Client(node, name)
 
