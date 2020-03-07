@@ -5,33 +5,32 @@
 const Buffer = require('buffer').Buffer
 const EventEmitter = require('events').EventEmitter
 const fs = require('fs')
-const readline = require('readline').createInterface({
-    input: process.stdin,
-    output: process.stdout,
-});
 const os = require("os")
 const path = require('path')
 
 const IPFS = require("ipfs")
 const Protector = require('libp2p/src/pnet')
+const Room = require('ipfs-pubsub-room')
 const argv = require('minimist')(process.argv.slice(1))
+const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout,
+});
 
 
 /* CONSTS */
 
-const MEMBER_HEARTBEAT_INTERVAL = 3000
-// The amount of without a heartbeat before a member is pronounced dead
-const MEMBER_CLEANUP_INTERVAL = MEMBER_HEARTBEAT_INTERVAL * 3
-const MEMBER_CLEANUP_POLL_INTERVAL = 200
+const MEMBER_HEARTBEAT_INTERVAL = 1 * 1000
 
 const KNOWN_PEERS = [
     // TODO : replace this with well known peers on the mesh network!
-    "/ip4/10.100.8.56/tcp/4001/ipfs/QmV7kUaknXbsivZuMZLSKND3KVK9nPD79G48r2GiMUPXft",
+    // "/ip4/10.100.8.56/tcp/4001/ipfs/QmV7kUaknXbsivZuMZLSKND3KVK9nPD79G48r2GiMUPXft",
+    "/ip4/0.0.0.0/tcp/4001/ipfs/QmcB8sBNuwsj9XYNW2Q5xSZo4VLQ7d5i2PX6xgCu6AmYZP",
 ]
 
 const PROMPT = "> "
 
-const DEFAULT_TOPIC = "main"
+const DEFAULT_ROOM = "main"
 // NOTE that this has to be >20 chars
 const DEFAULT_PASSWORD = "cancel-cretinous-cable-cartels"
 
@@ -87,10 +86,9 @@ class Client extends EventEmitter {
         this._node = node
         this._name = name
 
-        this._topic = null
-        // TODO : use a something better than timestamps
-        this._joined_at = null
-        this._topic_members = {}
+        this._room = null
+
+        this._cid_to_names = {}
 
         this._interval_ids = []
     }
@@ -110,90 +108,53 @@ class Client extends EventEmitter {
         return (await this._node.swarm.peers()).length != 0
     }
 
-    async subscribe (topic) {
-        if (this._topic == null) {
-            this._topic = topic
+    async join (room_name) {
+        if (this._room == null) {
+            this._room = new Room(this._node.libp2p, room_name)
         } else {
-            throw new Error("This client is already subscribed to a topic")
+            throw new Error("This client is already in a room")
         }
 
-        await this._node.pubsub.subscribe(
-            this._topic, (raw) => {
-                const data = JSON.parse(raw.data.toString())
-
-                if (data.type == "heartbeat") {
-                    // NOTE that we only emit a joined event if we think that the peer
-                    // joined after us
-                    if (
-                        !(data.name in this._topic_members) &&
-                        this._joined_at < new Date(data.joined_at)
-                    ) {
+        this._room.on(
+            "message",
+            (msg) => {
+                const data = JSON.parse(msg.data)
+                if (data.type == "greeting") {
+                    if (!Object.values(this._cid_to_names).includes(data.name)) {
                         this.emit("member:joined", data.name)
+                        this._cid_to_names[msg.cid] = data.name
                     }
-
-                    this._topic_members[data.name] = new Date()
                 } else if (data.type == "message") {
                     this.emit("member:message", data.name, data.payload)
                 } else {
                     this.emit("error", `Encountered invalid message: ${data.type}`)
                 }
-            },
-            {},
-            async () => {
-                this._joined_at = new Date()
-
-                // Set up periodic heartbeats from this peer
-                this._interval_ids.push(
-                    setInterval(
-                        () => {
-                            this._node.pubsub.publish(
-                                this._topic,
-                                Buffer.from(
-                                    JSON.stringify(
-                                        {name: this._name, type: "heartbeat", joined_at: this._joined_at}
-                                    )
-                                )
-                            )
-                        },
-                        MEMBER_HEARTBEAT_INTERVAL
-                    )
-                )
-
-                // Clean up peers that have left
-                this._interval_ids.push(
-                    setInterval(
-                        () => {
-                            const cur_time = new Date()
-                            for (const [name, last_hb_time] of Object.entries(this._topic_members)) {
-                                if (cur_time - last_hb_time >= MEMBER_CLEANUP_INTERVAL) {
-                                    this.emit("member:left", name)
-                                    delete this._topic_members[name]
-                                }
-                            }
-                        },
-                        MEMBER_CLEANUP_POLL_INTERVAL,
-                    )
-                )
             }
+        )
+
+        this._interval_ids.push(
+            setInterval(
+                () => {
+                    this._room.broadcast(
+                        JSON.stringify({"type": "greeting", "name": this._name})
+                    )
+                },
+                MEMBER_HEARTBEAT_INTERVAL
+            )
         )
     }
 
     async send (msg) {
-        if (this._topic == null) {
-            throw new Error("This client has not subscribed to a topic yet")
+        if (this._room == null) {
+            throw new Error("This client has not subscribed to a room yet")
         }
 
-        await this._node.pubsub.publish(
-            this._topic,
-            Buffer.from(JSON.stringify({name: this._name, type: "message", payload: msg}))
+        await this._room.broadcast(
+            JSON.stringify({name: this._name, type: "message", payload: msg})
         )
     }
 
-    disconnect () {
-        for (let id of this._interval_ids) {
-            clearInterval(id)
-        }
-    }
+    disconnect () {}
 }
 
 
@@ -204,7 +165,7 @@ async function main() {
         console.log(
 `A chat client for the mesh!
 
-usage: chat --name <username> [--topic <default: ${DEFAULT_TOPIC}>] [--password <password>]
+usage: chat --name <username> [--room <default: ${DEFAULT_ROOM}>] [--password <password>]
                               [--repo-path <default: ${DEFAULT_REPO_PATH}>]
                               [--swarm-port <default: ${DEFAULT_SWARM_PORT}>] 
                               [--swarm-key-path <default: ${DEFAULT_SWARM_KEY_PATH}>]
@@ -213,11 +174,11 @@ options:
     --name
         Your display name
 
-    --topic (optional)
-        The chat topic or channel that will be joined
+    --room (optional)
+        The chat room or channel that will be joined
 
     --password (optional)
-        The password to the specified topic
+        The password to the specified room
 
     --repo-path (optional)
         The path to the IPFS repo that will be used by the client
@@ -235,8 +196,8 @@ options:
 
     // XXX : add in a `_` "flag" since the parsed args always have it as a key
     // TODO : use a better interface to minimist
-    let name, topic, password, repo_path, port, swarm_key_path
-    const VALID_FLAGS = new Set(["name", "topic", "password", "repo-path", "port", "swarm-key-path", "_"])
+    let name, room, password, repo_path, port, swarm_key_path
+    const VALID_FLAGS = new Set(["name", "room", "password", "repo-path", "port", "swarm-key-path", "_"])
 
     let validation_succeeded = true
     for (const invalid_arg of Object.keys(argv).filter(arg => !VALID_FLAGS.has(arg))) {
@@ -256,17 +217,17 @@ options:
     name = argv["name"]
 
     // NOTE that we expect users to always pass both if they aren't using the default room
-    if (argv["topic"] == undefined ^ argv["password"] == undefined) {
-        console.log("ERROR: '--topic' and '--password' must both be or not be specified")
+    if (argv["room"] == undefined ^ argv["password"] == undefined) {
+        console.log("ERROR: '--room' and '--password' must both be or not be specified")
         process.exit(1)
     }
 
     // TOOD : stop passing the password on the command line
-    if (argv["topic"] != undefined) {
-        topic = argv["topic"]
+    if (argv["room"] != undefined) {
+        room = argv["room"]
         password = argv["password"]
     } else {
-        topic = DEFAULT_TOPIC
+        room = DEFAULT_ROOM
         password = DEFAULT_PASSWORD
     }
 
@@ -297,7 +258,7 @@ options:
     // Print periodic updates if our peer count changes
     let peerCount = null
     setInterval(async () => {
-        const peers = await node.swarm.peers()
+        const peers = client._room.getPeers()
         if (peers.length != peerCount) {
             writeToConsole(`INFO: Connected to ${peers.length} peers`)
             peerCount = peers.length
@@ -316,9 +277,9 @@ options:
     client.on("member:message", (name, payload) => writeToConsole(`${name}> ${payload}`))
     client.on("error", (err) => `WARNING: encountered an error: ${err}`)
 
-    writeToConsole(`INFO: joining '${topic}' topic...`)
+    writeToConsole(`INFO: joining '${room}' room...`)
 
-    await client.subscribe(topic)
+    await client.join(room)
     writeToConsole(`${name} joined!`)
 
     readline.on("line", async (line) => {
