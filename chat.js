@@ -23,9 +23,7 @@ const readline = require('readline').createInterface({
 const MEMBER_HEARTBEAT_INTERVAL = 1 * 1000
 
 const KNOWN_PEERS = [
-    // TODO : replace this with well known peers on the mesh network!
-    // "/ip4/10.100.8.56/tcp/4001/ipfs/QmV7kUaknXbsivZuMZLSKND3KVK9nPD79G48r2GiMUPXft",
-    "/ip4/0.0.0.0/tcp/4001/ipfs/QmcB8sBNuwsj9XYNW2Q5xSZo4VLQ7d5i2PX6xgCu6AmYZP",
+    "/ip4/10.100.8.56/tcp/4001/ipfs/QmV7kUaknXbsivZuMZLSKND3KVK9nPD79G48r2GiMUPXft",
 ]
 
 const PROMPT = "> "
